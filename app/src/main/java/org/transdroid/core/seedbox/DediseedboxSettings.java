@@ -60,6 +60,7 @@ public class DediseedboxSettings extends SeedboxSettingsImpl implements SeedboxS
 				true,
 				false,
 				null,
+				null,
 				"/rutorrent/plugins/httprpc/action.php",
 				true, 
 				user,

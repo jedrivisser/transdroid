@@ -20,7 +20,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.preference.PreferenceManager;
+import android.security.KeyChainException;
 import android.text.TextUtils;
+import android.util.Log;
 
 import org.androidannotations.annotations.Bean;
 import org.androidannotations.annotations.EBean;
@@ -46,6 +48,8 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
+import okhttp3.tls.HandshakeCertificates;
+
 /**
  * Singleton object to access all application settings, including stored servers, web search sites and RSS feeds.
  * @author Eric Kok
@@ -59,11 +63,13 @@ public class ApplicationSettings {
 	@RootContext
 	protected Context context;
 	private SharedPreferences prefs;
+	private MutualSslHelper mutualSslHelper;
 	@Bean
 	protected SearchHelper searchHelper;
 
 	protected ApplicationSettings(Context context) {
 		prefs = PreferenceManager.getDefaultSharedPreferences(context);
+		mutualSslHelper = new MutualSslHelper(context);
 	}
 
 	/**
@@ -165,6 +171,27 @@ public class ApplicationSettings {
 			localPort = port;
 		}
 
+		Log.d("CERTS", "server_name: " + prefs.getString("server_name_" + order, null));
+		String clientCertAlias = prefs.getString("server_clientcertificatealias_" + order, null);
+		Log.d("CERTS", "alias: " + clientCertAlias);
+
+		MutualSslHelper handshakeCertificates;
+		if (clientCertAlias == null) {
+			Log.d("CERTS", "clientCertAlias == null");
+			handshakeCertificates = null;
+		} else {
+//			try {
+//				handshakeCertificates = mutualSslHelper.getHandshakeCertificate(clientCertAlias);
+				handshakeCertificates = mutualSslHelper;
+				handshakeCertificates.setAlias(clientCertAlias);
+				Log.d("CERTS", "handshakeCertificates success");
+//			} catch (InterruptedException | KeyChainException e) {
+//				Log.d("CERTS", "handshakeCertificates exception");
+//				handshakeCertificates = null;
+//			}
+		}
+
+
 		return new ServerSetting(order, 
 				prefs.getString("server_name_" + order, null), 
 				type, 
@@ -176,6 +203,7 @@ public class ApplicationSettings {
 				ssl, localSsl,
 				prefs.getBoolean("server_ssltrustall_" + order, false), 
 				prefs.getString("server_ssltrustkey_" + order, null),
+				handshakeCertificates,
 				prefs.getString("server_folder_" + order, null),
 				!prefs.getBoolean("server_disableauth_" + order, false), 
 				prefs.getString("server_user_" + order, null),
@@ -217,6 +245,7 @@ public class ApplicationSettings {
 			edit.putBoolean("server_localsslenabled_" + i, prefs.getBoolean("server_localsslenabled_" + (i + 1), false));
 			edit.putBoolean("server_ssltrustall_" + i, prefs.getBoolean("server_ssltrustall_" + (i + 1), false));
 			edit.putString("server_ssltrustkey_" + i, prefs.getString("server_ssltrustkey_" + (i + 1), null));
+			edit.putString("server_clientcertificatealias_" + i, prefs.getString("server_clientcertificatealias_" + (i + 1), null));
 			edit.putString("server_folder_" + i, prefs.getString("server_folder_" + (i + 1), null));
 			edit.putBoolean("server_disableauth_" + i, prefs.getBoolean("server_disableauth_" + (i + 1), false));
 			edit.putString("server_user_" + i, prefs.getString("server_user_" + (i + 1), null));
@@ -242,6 +271,7 @@ public class ApplicationSettings {
 		edit.remove("server_localsslenabled_" + max);
 		edit.remove("server_ssltrustall_" + max);
 		edit.remove("server_ssltrustkey_" + max);
+		edit.remove("server_clientcertificatealias_" + max);
 		edit.remove("server_folder_" + max);
 		edit.remove("server_disableauth_" + max);
 		edit.remove("server_user_" + max);

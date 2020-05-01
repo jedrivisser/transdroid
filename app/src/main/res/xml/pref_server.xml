@@ -102,6 +102,11 @@
 			android:summary="@string/pref_sslkey_info"
 			android:inputType="textNoSuggestions"
 			android:dependency="server_sslenabled" />
+		<org.transdroid.core.gui.settings.InterceptableEditTextPreference
+			android:key="server_clientcertificatealias"
+			android:title="@string/pref_clientcertificate"
+			android:summary="@string/pref_clientcertificate_info"
+			android:inputType="textNoSuggestions" />
 	</PreferenceScreen>
 
 	<PreferenceScreen android:title="@string/pref_optional" >

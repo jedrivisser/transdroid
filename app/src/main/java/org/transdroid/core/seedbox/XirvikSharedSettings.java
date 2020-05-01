@@ -58,6 +58,7 @@ public class XirvikSharedSettings extends SeedboxSettingsImpl implements Seedbox
 				true,
 				false,
 				null,
+				null,
 				rpc,
 				true, 
 				user,

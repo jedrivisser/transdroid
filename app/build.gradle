@@ -8,6 +8,7 @@ android {
     defaultConfig {
         minSdkVersion 15
         targetSdkVersion 29
+        multiDexEnabled true
         versionCode 237
         versionName '2.5.17'
 
@@ -62,6 +63,10 @@ android {
     lintOptions {
         disable 'MissingTranslation', 'ExtraTranslation', 'StringFormatInvalid', 'ValidFragment'
     }
+    compileOptions {
+        sourceCompatibility = 1.8
+        targetCompatibility = 1.8
+    }
 }
 
 dependencies {
@@ -84,5 +89,8 @@ dependencies {
     implementation 'com.evernote:android-job:1.2.6'
     annotationProcessor 'org.androidannotations:androidannotations:4.6.0'
     annotationProcessor 'org.androidannotations:ormlite:4.6.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.6.0'
+    implementation "com.squareup.okhttp3:okhttp-tls:4.6.0"
+    implementation 'com.android.support:multidex:1.0.3'
 }
 

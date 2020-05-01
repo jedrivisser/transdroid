@@ -1,16 +1,16 @@
-/* 
+/*
  * Copyright 2010-2018 Eric Kok et al.
- * 
+ *
  * Transdroid is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * Transdroid is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Transdroid.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -28,7 +28,12 @@ import android.os.Bundle;
 import android.preference.EditTextPreference;
 import android.preference.Preference;
 import android.preference.PreferenceManager;
+import android.security.KeyChain;
+import android.security.KeyChainAliasCallback;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.util.Log;
+
 import org.androidannotations.annotations.Bean;
 import org.androidannotations.annotations.EActivity;
 import org.androidannotations.annotations.OptionsItem;
@@ -51,7 +56,7 @@ public class ServerSettingsActivity extends KeyBoundPreferencesActivity {
 
 	private static final int DIALOG_CONFIRMREMOVE = 0;
 
-	private EditTextPreference extraPass, folder, downloadDir, excludeFilter, includeFilter, localNetworkPreference;
+	private EditTextPreference extraPass, folder, downloadDir, excludeFilter, includeFilter, localNetworkPreference, clientCertificatePreference;
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -69,6 +74,7 @@ public class ServerSettingsActivity extends KeyBoundPreferencesActivity {
 		initTextPreference("server_pass");
 		extraPass = initTextPreference("server_extrapass");
 		localNetworkPreference = initTextPreference("server_localnetwork");
+		clientCertificatePreference = initTextPreference("server_clientcertificatealias");
 		initTextPreference("server_localaddress");
 		initTextPreference("server_localport");
 		folder = initTextPreference("server_folder");
@@ -93,6 +99,32 @@ public class ServerSettingsActivity extends KeyBoundPreferencesActivity {
 			public boolean onPreferenceClick(final Preference preference) {
 				if (!connectivityHelper.hasNetworkNamePermission(ServerSettingsActivity.this)) {
 					connectivityHelper.askNetworkNamePermission(ServerSettingsActivity.this);
+					return true;
+				}
+				return false;
+			}
+		});
+
+		clientCertificatePreference.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+			@Override
+			public boolean onPreferenceClick(final Preference preference) {
+				Log.d("current alias", "current alias: " + preference.getPreferenceManager()
+						.getSharedPreferences()
+						.getString(preference.getKey(), ""));
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+					KeyChain.choosePrivateKeyAlias(ServerSettingsActivity.this, new KeyChainAliasCallback() {
+						@Override
+						public void alias(@Nullable String alias) {
+							if (alias != null) {
+								Log.d("alias", alias);
+							}
+							preference.getPreferenceManager()
+									.getSharedPreferences()
+									.edit()
+									.putString(preference.getKey(), alias)
+									.apply();
+						}
+					}, null,null,null,null);
 					return true;
 				}
 				return false;

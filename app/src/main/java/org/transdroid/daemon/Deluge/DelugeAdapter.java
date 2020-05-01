@@ -17,18 +17,7 @@
  */
 package org.transdroid.daemon.Deluge;
 
-import com.android.internalcopy.http.multipart.FilePart;
-import com.android.internalcopy.http.multipart.MultipartEntity;
-import com.android.internalcopy.http.multipart.Part;
-
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.cookie.Cookie;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.protocol.HTTP;
+import org.jetbrains.annotations.NotNull;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -65,16 +54,27 @@ import org.transdroid.daemon.task.SetFilePriorityTask;
 import org.transdroid.daemon.task.SetLabelTask;
 import org.transdroid.daemon.task.SetTrackersTask;
 import org.transdroid.daemon.task.SetTransferRatesTask;
-import org.transdroid.daemon.util.HttpHelper;
 
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.X509TrustManager;
+
+import okhttp3.Cookie;
+import okhttp3.CookieJar;
+import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 import static org.transdroid.daemon.Deluge.DelugeCommon.RPC_DETAILS;
 import static org.transdroid.daemon.Deluge.DelugeCommon.RPC_DETAILS_FIELDS_ARRAY;
@@ -134,21 +134,24 @@ import static org.transdroid.daemon.Deluge.DelugeCommon.RPC_URL;
 
 /**
  * The daemon adapter from the Deluge torrent client.
+ *
  * @author erickok
  */
 public class DelugeAdapter implements IDaemonAdapter {
+	public static final MediaType JSON = MediaType.get("application/json");
 
 	private static final String LOG_NAME = "Deluge daemon";
 
-	private static final String PATH_TO_RPC = "/json";
-	private static final String PATH_TO_UPLOAD = "/upload";
+	private static final String PATH_TO_RPC = "json";
+	private static final String PATH_TO_UPLOAD = "upload";
 
 	private static final String RPC_ID = "id";
 	private static final String RPC_METHOD_ADD_FILE = "web.add_torrents";
 
 	private DaemonSettings settings;
-	private DefaultHttpClient httpclient;
+	//	private DefaultHttpClient httpclient;
 	private Cookie sessionCookie;
+	private OkHttpClient httpClient;
 	private int version = -1;
 
 	public DelugeAdapter(DaemonSettings settings) {
@@ -157,27 +160,42 @@ public class DelugeAdapter implements IDaemonAdapter {
 
 	private JSONArray addTorrentByFile(String file, Log log) throws JSONException, IOException, DaemonException {
 
-		String url = buildWebUIUrl() + PATH_TO_UPLOAD;
+		HttpUrl url = buildWebUIUrl(PATH_TO_UPLOAD);
 
 		log.d(LOG_NAME, "Uploading a file to the Deluge daemon: " + url);
 
 		// Initialise the HTTP client
-		if (httpclient == null) {
+		if (httpClient == null) {
 			initialise();
 		}
 
-		// Setup client using POST
-		HttpPost httppost = new HttpPost(url);
-		File upload = new File(URI.create(file));
-		Part[] parts = {new FilePart(RPC_FILE, upload)};
-		httppost.setEntity(new MultipartEntity(parts, httppost.getParams()));
+		RequestBody requestBody = new MultipartBody.Builder()
+				.setType(MultipartBody.FORM)
+				.addFormDataPart(RPC_FILE, file).build();
 
-		// Make request
-		HttpResponse response = httpclient.execute(httppost);
+		Request request = new Request.Builder()
+				.url(url)
+				.post(requestBody)
+				.build();
+
+		Response response = httpClient.newCall(request).execute();
+		if (!response.isSuccessful()) throw new IOException("Unexpected code " + response);
+		ResponseBody responseBody = response.body();
+		if (responseBody == null) throw new IOException("Response body is null");
+		String result = responseBody.string();
+
+//		// Setup client using POST
+//		HttpPost httppost = new HttpPost(url);
+//		File upload = new File(URI.create(file));
+//		Part[] parts = {new FilePart(RPC_FILE, upload)};
+//		httppost.setEntity(new MultipartEntity(parts, httppost.getParams()));
+//
+//		// Make request
+//		HttpResponse response = httpclient.execute(httppost);
 
 		// Read JSON response
-		InputStream instream = response.getEntity().getContent();
-		String result = HttpHelper.convertStreamToString(instream);
+//		InputStream instream = response.getEntity().getContent();
+//		String result = HttpHelper.convertStreamToString(instream);
 
 		// If the upload succeeded, add the torrent file on the server
 		// For this we need the file name, which is now send as a JSON object like:
@@ -436,12 +454,17 @@ public class DelugeAdapter implements IDaemonAdapter {
 		// We still need to retrieve the version number from the server
 		// Do this by getting the web interface main html page and trying to parse the version number
 		// Format is something like '<title>Deluge: Web UI 1.3.6</title>'
-		if (httpclient == null) {
+		if (httpClient == null) {
 			initialise();
 		}
 		try {
-			HttpResponse response = httpclient.execute(new HttpGet(buildWebUIUrl() + "/"));
-			String main = HttpHelper.convertStreamToString(response.getEntity().getContent());
+			Request request = new Request.Builder().url(buildWebUIUrl()).build();
+			Response response = httpClient.newCall(request).execute();
+			ResponseBody responseBody = response.body();
+			if (responseBody == null) throw new IOException("Response body is null");
+			String main = responseBody.string();
+//			HttpResponse response = httpclient.execute(new HttpGet(buildWebUIUrl() + "/"));
+//			String main = HttpHelper.convertStreamToString(response.getEntity().getContent());
 			String titleStartText = "<title>Deluge: Web UI ";
 			String titleEndText = "</title>";
 			int titleStart = main.indexOf(titleStartText);
@@ -477,7 +500,7 @@ public class DelugeAdapter implements IDaemonAdapter {
 		try {
 
 			// Initialise the HTTP client
-			if (httpclient == null) {
+			if (httpClient == null) {
 				initialise();
 			}
 
@@ -495,30 +518,42 @@ public class DelugeAdapter implements IDaemonAdapter {
 				loginRequest.put(RPC_ID, 1);
 
 				// Set POST URL and data
-				HttpPost httppost = new HttpPost(buildWebUIUrl() + PATH_TO_RPC);
-				httppost.setHeader("content-type", "application/json");
-				StringEntity se = new StringEntity(loginRequest.toString());
-				httppost.setEntity(se);
+				RequestBody requestBody = RequestBody.create(loginRequest.toString().getBytes(), JSON);
+				Request request = new Request.Builder()
+						.url(buildWebUIUrl(PATH_TO_RPC))
+						.post(requestBody)
+						.build();
+
+				Response response = httpClient.newCall(request).execute();
+				if (!response.isSuccessful()) throw new IOException("Login Unexpected code " + response);
+				ResponseBody responseBody = response.body();
+				if (responseBody == null) throw new IOException("Response body is null");
+				String result = responseBody.string();
+
+//				HttpPost httppost = new HttpPost(buildWebUIUrl() + PATH_TO_RPC);
+//				httppost.setHeader("content-type", "application/json");
+//				StringEntity se = new StringEntity(loginRequest.toString());
+//				httppost.setEntity(se);
 
 				// Execute
-				HttpResponse response = httpclient.execute(httppost);
-				InputStream instream = response.getEntity().getContent();
+//				HttpResponse response = httpclient.execute(httppost);
+//				InputStream instream = response.getEntity().getContent();
 
 				// Retrieve session ID
-				if (!httpclient.getCookieStore().getCookies().isEmpty()) {
-					for (Cookie cookie : httpclient.getCookieStore().getCookies()) {
-						if (cookie.getName().equals(RPC_SESSION_ID)) {
-							sessionCookie = cookie;
-							break;
-						}
-					}
-				}
+//				if (!httpclient.getCookieStore().getCookies().isEmpty()) {
+//					for (Cookie cookie : httpclient.getCookieStore().getCookies()) {
+//						if (cookie.getName().equals(RPC_SESSION_ID)) {
+//							sessionCookie = cookie;
+//							break;
+//						}
+//					}
+//				}
 
 				// Still no session cookie?
 				if (sessionCookie == null) {
 					// Set error message and cancel the action that was requested
 					throw new DaemonException(ExceptionType.AuthenticationFailure, "Password error? Server time difference? No (valid) cookie in " +
-							"response and JSON was: " + HttpHelper.convertStreamToString(instream));
+							"response and JSON was: " + result);
 				}
 
 			}
@@ -526,44 +561,58 @@ public class DelugeAdapter implements IDaemonAdapter {
 			// Regular action
 
 			// Set POST URL and data
-			HttpPost httppost = new HttpPost(buildWebUIUrl() + PATH_TO_RPC);
-			httppost.setHeader("content-type", "application/json");
-			StringEntity se = new StringEntity(data.toString(), HTTP.UTF_8);
-			httppost.setEntity(se);
+			RequestBody requestBody = RequestBody.create(data.toString().getBytes(), JSON);
+			Request request = new Request.Builder()
+					.url(buildWebUIUrl(PATH_TO_RPC))
+					.post(requestBody)
+					.build();
+
+			Response response = httpClient.newCall(request).execute();
+			if (!response.isSuccessful()) throw new IOException("Request Unexpected code " + response);
+			ResponseBody responseBody = response.body();
+			if (responseBody == null)
+				throw new DaemonException(ExceptionType.UnexpectedResponse, "No HTTP entity in response object.");
+			String result = responseBody.string();
+
+
+//			HttpPost httppost = new HttpPost(buildWebUIUrl() + PATH_TO_RPC);
+//			httppost.setHeader("content-type", "application/json");
+//			StringEntity se = new StringEntity(data.toString(), HTTP.UTF_8);
+//			httppost.setEntity(se);
 
 			// Set session cookie, if it was not in the httpclient object yet
-			boolean cookiePresent = false;
-			for (Cookie cookie : httpclient.getCookieStore().getCookies()) {
-				if (cookie.getName().equals(RPC_SESSION_ID)) {
-					cookiePresent = true;
-					break;
-				}
-			}
-			if (!cookiePresent) {
-				httpclient.getCookieStore().addCookie(sessionCookie);
-			}
+//			boolean cookiePresent = false;
+//			for (Cookie cookie : httpclient.getCookieStore().getCookies()) {
+//				if (cookie.getName().equals(RPC_SESSION_ID)) {
+//					cookiePresent = true;
+//					break;
+//				}
+//			}
+//			if (!cookiePresent) {
+//				httpclient.getCookieStore().addCookie(sessionCookie);
+//			}
 
 			// Execute
-			HttpResponse response = httpclient.execute(httppost);
+//			HttpResponse response = httpclient.execute(httppost);
 
-			HttpEntity entity = response.getEntity();
-			if (entity != null) {
+//			HttpEntity entity = response.getEntity();
+//			if (entity != null) {
 
-				// Read JSON response
-				InputStream instream = entity.getContent();
-				String result = HttpHelper.convertStreamToString(instream);
-				JSONObject json = new JSONObject(result);
-				instream.close();
+			// Read JSON response
+//				InputStream instream = entity.getContent();
+//				String result = HttpHelper.convertStreamToString(instream);
+			JSONObject json = new JSONObject(result);
+//				instream.close();
 
-				log.d(LOG_NAME, "Success: " + (result.length() > 300 ? result.substring(0, 300) + "... (" + result.length() + " chars)" : result));
+			log.d(LOG_NAME, "Success: " + (result.length() > 300 ? result.substring(0, 300) + "... (" + result.length() + " chars)" : result));
 
-				// Return JSON object
-				return json;
+			// Return JSON object
+			return json;
 
-			}
+//			}
 
 			// No result?
-			throw new DaemonException(ExceptionType.UnexpectedResponse, "No HTTP entity in response object.");
+//			throw new DaemonException(ExceptionType.UnexpectedResponse, "No HTTP entity in response object.");
 
 		} catch (JSONException e) {
 			log.d(LOG_NAME, "Error: " + e.toString());
@@ -577,23 +626,39 @@ public class DelugeAdapter implements IDaemonAdapter {
 
 	/**
 	 * Instantiates an HTTP client with proper credentials that can be used for all Transmission requests.
+	 *
 	 * @throws DaemonException On missing settings
 	 */
 	private void initialise() throws DaemonException {
+		OkHttpClient.Builder builder = new OkHttpClient.Builder().cookieJar(new MyCookieJar());
 
-		httpclient = HttpHelper.createStandardHttpClient(settings, settings.getUsername() != null && !settings.getUsername().equals(""));
-		httpclient.addRequestInterceptor(HttpHelper.gzipRequestInterceptor);
-		httpclient.addResponseInterceptor(HttpHelper.gzipResponseInterceptor);
+		try {
+			X509TrustManager trustManager = settings.mutualSslHelper().trustManager();
+			SSLSocketFactory sslSocketFactory = settings.mutualSslHelper().sslSocketFactory();
+			builder.sslSocketFactory(sslSocketFactory,trustManager);
+			httpClient = builder.build();
+		} catch (Exception e) {
+			throw new DaemonException(ExceptionType.UnexpectedResponse, "cert error");
+		}
+//		httpclient = HttpHelper.createStandardHttpClient(settings, settings.getUsername() != null && !settings.getUsername().equals(""));
+//		httpclient.addRequestInterceptor(HttpHelper.gzipRequestInterceptor);
+//		httpclient.addResponseInterceptor(HttpHelper.gzipResponseInterceptor);
 
 	}
 
 	/**
 	 * Build the URL of the Transmission web UI from the user settings.
+	 *
 	 * @return The URL of the RPC API
 	 */
-	private String buildWebUIUrl() {
-		return (settings.getSsl() ? "https://" : "http://") + settings.getAddress() + ":" + settings.getPort() + (settings.getFolder() == null ? ""
-				: settings.getFolder());
+	private HttpUrl buildWebUIUrl(String ... pathSegments) {
+		HttpUrl.Builder builder = new HttpUrl.Builder().host(settings.getAddress()).port(settings.getPort());
+		builder.scheme(settings.getSsl()? "https":"http");
+//		if (settings.getFolder() != null) builder.addPathSegments(settings.getFolder());
+		for (String pathSegment: pathSegments) {
+			builder.addPathSegments(pathSegment);
+		}
+		return builder.build();
 	}
 
 	private ArrayList<Torrent> parseJsonRetrieveTorrents(JSONObject response) throws JSONException, DaemonException {
@@ -635,8 +700,8 @@ public class DelugeAdapter implements IDaemonAdapter {
 						tor.getLong(RPC_TOTALSIZE),
 						((float) tor.getDouble(RPC_PARTDONE)) / 100f, // Percentage to [0..1]
 						0f, // Not available
-						tor.has(RPC_LABEL)? tor.getString(RPC_LABEL): null,
-						tor.has(RPC_TIMEADDED)? new Date((long) (tor.getDouble(RPC_TIMEADDED) * 1000L)): null,
+						tor.has(RPC_LABEL) ? tor.getString(RPC_LABEL) : null,
+						tor.has(RPC_TIMEADDED) ? new Date((long) (tor.getDouble(RPC_TIMEADDED) * 1000L)) : null,
 						null, // Not available
 						error,
 						settings.getType()));
@@ -732,4 +797,24 @@ public class DelugeAdapter implements IDaemonAdapter {
 		return this.settings;
 	}
 
+	private class MyCookieJar implements CookieJar {
+		@NotNull
+		@Override
+		public List<Cookie> loadForRequest(@NotNull HttpUrl httpUrl) {
+			return sessionCookie == null ? Collections.emptyList() : Collections.singletonList(sessionCookie);
+		}
+
+		@Override
+		public void saveFromResponse(@NotNull HttpUrl httpUrl, @NotNull List<Cookie> cookies) {
+			if (!cookies.isEmpty()) {
+				for (Cookie cookie : cookies) {
+					if (cookie.name().equals(RPC_SESSION_ID)) {
+						sessionCookie = cookie;
+						break;
+					}
+				}
+			}
+		}
+	}
 }
+

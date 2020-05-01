@@ -60,6 +60,7 @@ public class SeedstuffSettings extends SeedboxSettingsImpl implements SeedboxSet
 				true,
 				false,
 				null,
+				null,
 				"/user/" + user,
 				true, 
 				user,
